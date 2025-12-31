@@ -1,21 +1,23 @@
+use crate::ip::mmdb::mmdb_record::MMDBResult;
 use log::warn;
 use maxminddb::Reader;
-use crate::ip::mmdb::mmdb_record::MMDBResult;
 
-pub struct  MMDBReader {
-    reader : Reader<Vec<u8>>
+pub struct MMDBReader {
+    reader: Reader<Vec<u8>>,
 }
 
 impl MMDBReader {
     pub fn from(path: &str) -> Option<Self> {
         if let Ok(custom_reader) = maxminddb::Reader::open_readfile(path) {
-            Some(MMDBReader {reader : custom_reader})
+            Some(MMDBReader {
+                reader: custom_reader,
+            })
         } else {
             None
         }
     }
 
-    pub fn lookup(&mut self,address: &str) -> Option<MMDBResult> {
+    pub fn lookup(&mut self, address: &str) -> Option<MMDBResult> {
         match self.reader.lookup(address.parse().unwrap()) {
             Err(e) => {
                 warn!("Geo IP database error: {}", e);
