@@ -1,98 +1,101 @@
-name: Docker
+name: Manual Docker Build and Push
 
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
+# 此工作流使用了未经 GitHub 认证的第三方操作。
+# 它们由第三方提供，并受单独的条款、隐私政策和支持文档约束。
 
+# 1. 修改触发条件，仅支持手动触发
 on:
-  schedule:
-    - cron: '26 1 * * *'
-  push:
-    branches: [ "master" ]
-    # Publish semver tags as releases.
-    tags: [ 'v*.*.*' ]
-  pull_request:
-    branches: [ "master" ]
+  workflow_dispatch:
+    inputs:
+      # 允许在手动触发时指定版本Tag
+      tag:
+        description: 'Image tag to build and push (e.g., v1.0.0, latest)'
+        required: true
+        default: 'latest'
+        type: string
 
+# 2. 环境变量定义
 env:
-  # Use docker.io for Docker Hub if empty
+  # 使用 ghcr.io
   REGISTRY: ghcr.io
-  # github.repository as <account>/<repo>
+  # github.repository 格式为 <账户名>/<仓库名>
   IMAGE_NAME: ${{ github.repository }}
+  # 3. 指定使用 Dockerfile.alpine
+  DOCKERFILE_NAME: Dockerfile.alpine
 
-
+# 4. 定义任务
 jobs:
   build:
-
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-      # This is used to complete the identity challenge
-      # with sigstore/fulcio when running outside of PRs.
+      # 用于在非 PR 场景下完成 sigstore/fulcio 的身份挑战
       id-token: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Install the cosign tool except on PR
-      # https://github.com/sigstore/cosign-installer
+      # 安装 cosign 工具
       - name: Install cosign
-        if: github.event_name != 'pull_request'
-        uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20 #v3.5.0
+        # 文档指出，cosign 工具用于签名和验证镜像
+        uses: sigstore/cosign-installer@59acb0260d9c0ba8f4a2f9d9b48431a222b68e20 # v3.5.0
         with:
+          # cosign 版本（文档示例中使用 cosign-release 指定版本）
           cosign-release: 'v2.2.4'
 
-      # Set up BuildKit Docker container builder to be able to build
-      # multi-platform images and export cache
-      # https://github.com/docker/setup-buildx-action
+      # 设置 BuildKit Docker 容器构建器，用于构建多平台镜像和导出缓存
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+        # 文档中提到了此操作的功能
 
-      # Login against a Docker registry except on PR
-      # https://github.com/docker/login-action
+      # 登录到 Docker 仓库 (ghcr.io)
       - name: Log into registry ${{ env.REGISTRY }}
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+        # 文档说明了如何使用 GITHUB_TOKEN 进行身份验证
 
-      # Extract metadata (tags, labels) for Docker
-      # https://github.com/docker/metadata-action
+      # 提取 Docker 元数据（标签、标签）
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@96383f45573cb7f253c731d3b3ab81c87ef81934 # v5.0.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # 5. 核心修改：使用手动输入作为标签覆盖，而不是自动生成
+          # tags 输入是此操作的核心，用于定义输出标签
+          tags: |
+            # 使用手动输入的 tag
+            type=raw,value=${{ github.event.inputs.tag }}
 
-      # Build and push Docker image with Buildx (don't push on PR)
-      # https://github.com/docker/build-push-action
+      # 6. 使用指定的 Dockerfile.alpine 构建并推送 Docker 镜像
       - name: Build and push Docker image
         id: build-and-push
         uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857ece09 # v5.0.0
         with:
           context: .
-          push: ${{ github.event_name != 'pull_request' }}
+          # 7. 指定 Dockerfile
+          file: ${{ env.DOCKERFILE_NAME }}
+          # 总是推送到仓库，因为是手动触发
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+        # 文档提到，此操作默认使用 Git 上下文，但如果需要在构建步骤前进行文件操作，应使用 Path 上下文。
+        # 这里我们使用了 . 作为上下文，并指定了 Dockerfile 文件。
 
-      # Sign the resulting Docker image digest except on PRs.
-      # This will only write to the public Rekor transparency log when the Docker
-      # repository is public to avoid leaking data.  If you would like to publish
-      # transparency data even for private images, pass --force to cosign below.
-      # https://github.com/sigstore/cosign
+      # 8. 对构建的镜像摘要进行签名
       - name: Sign the published Docker image
-        if: ${{ github.event_name != 'pull_request' }}
         env:
-          # https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#using-an-intermediate-environment-variable
+          # 使用元数据步骤生成的标签
           TAGS: ${{ steps.meta.outputs.tags }}
+          # 使用构建步骤输出的镜像摘要
           DIGEST: ${{ steps.build-and-push.outputs.digest }}
-        # This step uses the identity token to provision an ephemeral certificate
-        # against the sigstore community Fulcio instance.
-        run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
+        # 此步骤使用身份令牌在 sigstore 社区 Fulcio 实例上配置临时证书。
+        run: |
+          echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
+        # 文档（链接1）强调了签名镜像的重要性，并建议基于摘要（digest）而非标签进行签名。
