@@ -6,13 +6,13 @@ listen_port=8080
 # you can specify the number of worker threads. default is 1
 # auto: number of cpu cores, or more than 0 as desired
 # increasing the count increases memory usage
-worker_threads=1
+worker_threads=auto
 
 # base api url /{base_url}/routes
 base_url="backend"
 
 # ipinfo.io API key, If the api-key works, the priority is with the api, if not with the offline database
-ipinfo_api_key=""
+ipinfo_api_key="9ffe6bdb341af3"
 
 # set directory of speedtest web front to server load on `/`. If it is empty, default web will be returned
 assets_path="./assets" # Write without suffix separator
@@ -30,7 +30,7 @@ result_image_theme="light"
 # database config for : mysql, postgres, sqlite, memory, or disable by write none
 # after restarting the service, the in-memory database is reset
 # if none is specified, no telemetry/stats will be recorded, and no result JPG will be generated
-database_type="sqlite"
+database_type="none"
 database_hostname="localhost"
 database_name="speedtest_db"
 database_username=""
